@@ -156,6 +156,11 @@
             const [cards, setCards] = useState(INITIAL_CARDS);
             const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
             
+            // Faturas adicionais de cartões manuais por ciclo (cardId_cycle: amount)
+            const [manualInvoices, setManualInvoices] = useState(() => {
+                try { return JSON.parse(localStorage.getItem('fc_manual_invoices')) || {}; } catch(e) { return {}; }
+            });
+            
             // Nomes customizáveis das pessoas
             const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Jordan');
             const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Areli');
@@ -168,6 +173,7 @@
             const [editingTx, setEditingTx] = useState(null);
             const [editingCard, setEditingCard] = useState(null);
             const [isNewCardModalOpen, setIsNewCardModalOpen] = useState(false);
+            const [cardForInvoiceModal, setCardForInvoiceModal] = useState(null);
 
             const [themeColor, setThemeColor] = useState(() => localStorage.getItem('fc_theme') || 'indigo');
             
@@ -325,6 +331,13 @@
                     }
                 }
                 setTransactions(prev => prev.filter(t => t.id !== txId));
+            };
+
+            const handleSaveManualInvoice = (cardId, cycle, amount) => {
+                const updated = { ...manualInvoices, [`${cardId}_${cycle}`]: amount };
+                setManualInvoices(updated);
+                localStorage.setItem('fc_manual_invoices', JSON.stringify(updated));
+                setCardForInvoiceModal(null);
             };
 
             return (
@@ -561,20 +574,24 @@
                                 {currentTab === 'cartoes' && (
                                     <div className="space-y-5">
                                         <div className="flex justify-between items-center px-1">
-                                            <h2 className="text-lg font-bold text-slate-800">Cartões de Crédito</h2>
+                                            <h2 className="text-lg font-bold text-slate-800">Cartões de Crédito & Faturas</h2>
                                             <button onClick={() => setIsNewCardModalOpen(true)} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>
                                                 <i className="fa-solid fa-plus mr-1.5"></i> Novo Cartão
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             {cards.filter(c => globalFilter === 'casal' || c.ownerId === globalFilter || c.ownerId === 'casal').map(card => {
-                                                let totalFatura = 0;
+                                                let totalFaturaTx = 0;
                                                 transactions.forEach(t => {
                                                     if (t.sourceType === 'card' && t.sourceId === card.id) {
                                                         const cycle = getFaturaCycle(t.date, card.closingDay);
-                                                        if (cycle === currentViewMonth) totalFatura += t.amount;
+                                                        if (cycle === currentViewMonth) totalFaturaTx += t.amount;
                                                     }
                                                 });
+
+                                                const manualKey = `${card.id}_${currentViewMonth}`;
+                                                const manualExtra = manualInvoices[manualKey] || 0;
+                                                const totalFatura = totalFaturaTx + manualExtra;
 
                                                 const owner = getOwnerConfig(card.ownerId);
 
@@ -593,6 +610,9 @@
                                                                     <span className={`text-xs font-bold px-2 py-1 rounded-full ${owner.color} text-white`}>
                                                                         {card.ownerId === 'p1' ? pessoa1Name : card.ownerId === 'p2' ? pessoa2Name : 'Casal'}
                                                                     </span>
+                                                                    <button onClick={() => setCardForInvoiceModal(card)} className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center text-xs" title="Adicionar/Ajustar Fatura Manual">
+                                                                        <i className="fa-solid fa-file-invoice-dollar"></i>
+                                                                    </button>
                                                                     <button onClick={() => setEditingCard(card)} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center text-xs" title="Editar">
                                                                         <i className="fa-solid fa-pen"></i>
                                                                     </button>
@@ -606,7 +626,10 @@
                                                                 </div>
                                                             </div>
                                                             <div className="my-4">
-                                                                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Fatura Atual</p>
+                                                                <div className="flex justify-between items-baseline">
+                                                                    <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Fatura Atual</p>
+                                                                    {manualExtra > 0 && <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-bold">Inclui fatura manual</span>}
+                                                                </div>
                                                                 <p className="text-3xl font-bold text-slate-800">{formatCurrency(totalFatura)}</p>
                                                             </div>
                                                         </div>
@@ -713,6 +736,18 @@
                         />
                     )}
 
+                    {/* Modal de Adicionar Fatura Manual por Cartão */}
+                    {cardForInvoiceModal && (
+                        <InvoiceManualModal
+                            card={cardForInvoiceModal}
+                            currentViewMonth={currentViewMonth}
+                            manualInvoices={manualInvoices}
+                            onClose={() => setCardForInvoiceModal(null)}
+                            onSave={handleSaveManualInvoice}
+                            themeClasses={themeClasses}
+                        />
+                    )}
+
                     {/* Modal de Novo Cartão */}
                     {isNewCardModalOpen && (
                         <NewCardModal
@@ -806,6 +841,56 @@
                                         <span>{item.name}</span>
                                     </button>
                                 ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            function InvoiceManualModal({ card, currentViewMonth, manualInvoices, onClose, onSave, themeClasses }) {
+                const manualKey = `${card.id}_${currentViewMonth}`;
+                const existingAmount = manualInvoices[manualKey] || 0;
+                const [amountStr, setAmountStr] = useState((existingAmount / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+                const handleAmountChange = (e) => {
+                    let val = e.target.value.replace(/\D/g, '');
+                    if (val === '') val = '0';
+                    const num = parseInt(val, 10);
+                    setAmountStr((num / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                };
+
+                const handleSave = () => {
+                    const totalAmount = parseCurrencyString(amountStr);
+                    onSave(card.id, currentViewMonth, totalAmount);
+                };
+
+                return (
+                    <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-slate-100">
+                                <div>
+                                    <h2 className="text-base font-bold text-slate-800">Fatura do Cartão</h2>
+                                    <p className="text-xs text-slate-500">{card.name} • {new Date(currentViewMonth + '-02').toLocaleString('pt-BR', { month: 'short', year: 'numeric' })}</p>
+                                </div>
+                                <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200">
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div className="text-center py-2">
+                                    <label className="text-xs text-slate-400 font-semibold uppercase mb-1 block">Valor da Fatura (R$)</label>
+                                    <div className="flex items-center justify-center text-3xl font-bold text-slate-800">
+                                        <span className="text-xl mr-1 text-slate-400">R$</span>
+                                        <input type="text" inputMode="numeric" value={amountStr} onChange={handleAmountChange} className="bg-transparent border-none text-center outline-none w-full max-w-[200px]"/>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-2">Adicionar um valor manual soma-se às compras feitas no cartão para este mês.</p>
+                                </div>
+
+                                <div className="pt-2">
+                                    <button onClick={handleSave} className={`w-full ${themeClasses.bg} ${themeClasses.hover} text-white font-bold py-3.5 rounded-xl shadow-lg transition-transform`}>
+                                        Salvar Fatura
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
