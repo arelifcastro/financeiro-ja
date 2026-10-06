@@ -16,7 +16,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <!-- Babel (Para compilar JSX no navegador) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
         .hide-scrollbar::-webkit-scrollbar {
@@ -696,7 +696,11 @@
                                 if (editingTx) {
                                     setTransactions(prev => prev.map(t => t.id === list[0].id ? list[0] : t));
                                 } else {
-                                    setTransactions(prev => [...prev, ...list]);
+                                    setTransactions(prev => {
+                                        const ids = new Set(list.map(x => x.id));
+                                        const filteredPrev = prev.filter(p => !ids.has(p.id));
+                                        return [...filteredPrev, ...list];
+                                    });
                                 }
                                 setIsTxModalOpen(false);
                                 setEditingTx(null);
