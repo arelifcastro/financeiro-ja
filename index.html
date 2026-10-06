@@ -40,7 +40,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCdM0kTzE1f-D4RmaxmQ-CDmVXzK5W4748",
@@ -57,17 +57,13 @@
             db: getFirestore(app),
             signInAnonymously,
             onAuthStateChanged,
-            doc, setDoc, onSnapshot, collection,
+            doc, setDoc, deleteDoc, onSnapshot, collection,
             appId: "1_1091820122865_web_f0d18cd512fab369182f50"
         };
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-
-        const PESSOA1 = { id: 'p1', name: 'Jordan', color: 'bg-blue-500', avatar: 'A' };
-        const PESSOA2 = { id: 'p2', name: 'Areli', color: 'bg-pink-500', avatar: 'B' };
-        const CASAL = { id: 'casal', name: 'Casal', color: 'bg-purple-600', avatar: '👥' };
 
         const CATEGORIAS = [
             { id: 'cat_moradia', name: 'Moradia', icon: '🏠', color: 'bg-indigo-500' },
@@ -81,7 +77,7 @@
             { id: 'cat_assinaturas', name: 'Assinaturas', icon: '📺', color: 'bg-purple-500' },
             { id: 'cat_roupas', name: 'Roupas', icon: '👕', color: 'bg-pink-400' },
             { id: 'cat_pets', name: 'Pets', icon: '🐶', color: 'bg-amber-600' },
-            { id: 'cat_impostos', name: 'Impostos/Taxas', icon: '🏛️', color: 'bg-slate-700' },
+            { id: 'cat_impostos', name: 'Impostos/Taxas', icon: '🏛', color: 'bg-slate-700' },
             { id: 'cat_salario', name: 'Salário', icon: '💰', color: 'bg-green-600', type: 'income' },
             { id: 'cat_renda_extra', name: 'Renda Extra', icon: '💸', color: 'bg-emerald-500', type: 'income' },
             { id: 'cat_outros', name: 'Outros', icon: '✨', color: 'bg-gray-400' }
@@ -96,8 +92,8 @@
         ];
 
         const INITIAL_CARDS = [
-            { id: 'card_nup1', ownerId: 'p1', name: 'Nubank Jordan', limit: 500000, closingDay: 25, dueDay: 2, accountId: 'acc_nup1', color: 'bg-purple-700' },
-            { id: 'card_nup2', ownerId: 'p2', name: 'Nubank Areli', limit: 800000, closingDay: 20, dueDay: 27, accountId: 'acc_nup2', color: 'bg-purple-700' },
+            { id: 'card_nup1', ownerId: 'p1', name: 'Nubank', limit: 500000, closingDay: 25, dueDay: 2, accountId: 'acc_nup1', color: 'bg-purple-700' },
+            { id: 'card_nup2', ownerId: 'p2', name: 'Nubank', limit: 800000, closingDay: 20, dueDay: 27, accountId: 'acc_nup2', color: 'bg-purple-700' },
             { id: 'card_bra', ownerId: 'casal', name: 'Bradesco', limit: 1200000, closingDay: 5, dueDay: 12, accountId: 'acc_bra', color: 'bg-red-600' },
             { id: 'card_cai', ownerId: 'casal', name: 'Caixa', limit: 300000, closingDay: 10, dueDay: 17, accountId: 'acc_cai', color: 'bg-blue-600' }
         ];
@@ -140,6 +136,17 @@
             return `${year}-${String(month).padStart(2, '0')}`;
         };
 
+        const addMonthsToDateStr = (dateStr, numMonths) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            let targetM = m + numMonths;
+            let targetY = y;
+            while (targetM > 12) {
+                targetM -= 12;
+                targetY += 1;
+            }
+            return `${targetY}-${String(targetM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        };
+
         function FinancasCasalApp() {
             const [globalFilter, setGlobalFilter] = useState('casal');
             const [currentTab, setCurrentTab] = useState('home');
@@ -149,7 +156,21 @@
             const [cards, setCards] = useState(INITIAL_CARDS);
             const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
             
+            // Nomes customizáveis das pessoas
+            const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Jordan');
+            const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Areli');
+
+            const PESSOA1 = useMemo(() => ({ id: 'p1', name: pessoa1Name, color: 'bg-blue-500', avatar: 'A' }), [pessoa1Name]);
+            const PESSOA2 = useMemo(() => ({ id: 'p2', name: pessoa2Name, color: 'bg-pink-500', avatar: 'B' }), [pessoa2Name]);
+            const CASAL = useMemo(() => ({ id: 'casal', name: 'Casal', color: 'bg-purple-600', avatar: '👥' }), []);
+
             const [isTxModalOpen, setIsTxModalOpen] = useState(false);
+            const [editingTx, setEditingTx] = useState(null);
+            const [editingCard, setEditingCard] = useState(null);
+            const [isNewCardModalOpen, setIsNewCardModalOpen] = useState(false);
+
+            const [themeColor, setThemeColor] = useState(() => localStorage.getItem('fc_theme') || 'indigo');
+            
             const [authError, setAuthError] = useState(false);
             const [dbError, setDbError] = useState(false);
             const [firebaseReady, setFirebaseReady] = useState(false);
@@ -246,9 +267,11 @@
                         if (t.sourceType === 'account') {
                             const acc = accounts.find(a => a.id === t.sourceId);
                             payer = acc ? acc.ownerId : 'casal';
-                        } else {
+                        } else if (t.sourceType === 'card') {
                             const card = cards.find(c => c.id === t.sourceId);
                             payer = card ? card.ownerId : 'casal';
+                        } else {
+                            payer = 'casal';
                         }
                     }
 
@@ -271,14 +294,47 @@
                 setCurrentViewMonth(`${newY}-${String(newM).padStart(2, '0')}`);
             };
 
+            const themeClasses = {
+                indigo: { bg: 'bg-indigo-600', hover: 'hover:bg-indigo-700', text: 'text-indigo-600', lightBg: 'bg-indigo-50', shadow: 'shadow-indigo-600/30' },
+                emerald: { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-700', text: 'text-emerald-600', lightBg: 'bg-emerald-50', shadow: 'shadow-emerald-600/30' },
+                purple: { bg: 'bg-purple-600', hover: 'hover:bg-purple-700', text: 'text-purple-600', lightBg: 'bg-purple-50', shadow: 'shadow-purple-600/30' },
+                rose: { bg: 'bg-rose-600', hover: 'hover:bg-rose-700', text: 'text-rose-600', lightBg: 'bg-rose-50', shadow: 'shadow-rose-600/30' },
+                amber: { bg: 'bg-amber-600', hover: 'hover:bg-amber-700', text: 'text-amber-600', lightBg: 'bg-amber-50', shadow: 'shadow-amber-600/30' },
+            }[themeColor] || { bg: 'bg-indigo-600', hover: 'hover:bg-indigo-700', text: 'text-indigo-600', lightBg: 'bg-indigo-50', shadow: 'shadow-indigo-600/30' };
+
+            const saveTheme = (color) => {
+                setThemeColor(color);
+                localStorage.setItem('fc_theme', color);
+            };
+
+            const handleSaveNames = (n1, n2) => {
+                setPessoa1Name(n1);
+                setPessoa2Name(n2);
+                localStorage.setItem('fc_p1_name', n1);
+                localStorage.setItem('fc_p2_name', n2);
+            };
+
+            const handleDeleteTransaction = async (txId) => {
+                if (!confirm("Tem certeza que deseja excluir este lançamento?")) return;
+                if (user && window.firebaseAPI) {
+                    try {
+                        const { db, doc, deleteDoc, appId } = window.firebaseAPI;
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', txId));
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }
+                setTransactions(prev => prev.filter(t => t.id !== txId));
+            };
+
             return (
                 <div className="w-full max-w-6xl h-full md:h-[92vh] md:rounded-3xl flex flex-col md:flex-row bg-slate-50 font-sans shadow-2xl relative text-slate-800 border border-slate-200 overflow-hidden">
                     
-                    {/* Barra Lateral para Computador (Sidebar) */}
+                    {/* Barra Lateral Desktop (Sidebar) */}
                     <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 p-6 justify-between z-20 shrink-0">
                         <div>
                             <div className="flex items-center space-x-3 mb-8">
-                                <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-md shadow-indigo-600/30">
+                                <div className={`w-10 h-10 ${themeClasses.bg} text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-md ${themeClasses.shadow}`}>
                                     ❤️
                                 </div>
                                 <div>
@@ -288,20 +344,23 @@
                             </div>
 
                             <nav className="space-y-1.5">
-                                <button onClick={() => setCurrentTab('home')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'home' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}>
+                                <button onClick={() => setCurrentTab('home')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'home' ? `${themeClasses.lightBg} ${themeClasses.text}` : 'text-slate-600 hover:bg-slate-50'}`}>
                                     <i className="fa-solid fa-house w-5"></i><span>Início</span>
                                 </button>
-                                <button onClick={() => setCurrentTab('transacoes')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'transacoes' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}>
+                                <button onClick={() => setCurrentTab('transacoes')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'transacoes' ? `${themeClasses.lightBg} ${themeClasses.text}` : 'text-slate-600 hover:bg-slate-50'}`}>
                                     <i className="fa-solid fa-file-invoice w-5"></i><span>Lançamentos</span>
                                 </button>
-                                <button onClick={() => setCurrentTab('cartoes')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'cartoes' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}>
+                                <button onClick={() => setCurrentTab('cartoes')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'cartoes' ? `${themeClasses.lightBg} ${themeClasses.text}` : 'text-slate-600 hover:bg-slate-50'}`}>
                                     <i className="fa-solid fa-credit-card w-5"></i><span>Cartões</span>
+                                </button>
+                                <button onClick={() => setCurrentTab('ajustes')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-colors ${currentTab === 'ajustes' ? `${themeClasses.lightBg} ${themeClasses.text}` : 'text-slate-600 hover:bg-slate-50'}`}>
+                                    <i className="fa-solid fa-gear w-5"></i><span>Ajustes</span>
                                 </button>
                             </nav>
                         </div>
 
                         <div>
-                            <button onClick={() => setIsTxModalOpen('expense')} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-transform active:scale-95">
+                            <button onClick={() => { setEditingTx(null); setIsTxModalOpen(true); }} className={`w-full ${themeClasses.bg} ${themeClasses.hover} text-white font-bold py-3.5 px-4 rounded-xl shadow-lg ${themeClasses.shadow} flex items-center justify-center space-x-2 transition-transform active:scale-95`}>
                                 <i className="fa-solid fa-plus"></i>
                                 <span>Novo Lançamento</span>
                             </button>
@@ -369,16 +428,16 @@
                                     <div className="space-y-6">
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             {/* Saldo Principal */}
-                                            <div className="bg-gradient-to-br from-purple-800 to-indigo-900 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden md:col-span-3">
+                                            <div className="bg-gradient-to-br from-slate-900 to-indigo-950 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden md:col-span-3">
                                                 <div className="absolute top-0 right-0 opacity-10">
                                                     <i className="fa-solid fa-chart-pie text-[140px] -mr-8 -mt-8 block"></i>
                                                 </div>
-                                                <p className="text-purple-200 text-sm font-medium mb-1">Saldo Líquido em Contas</p>
+                                                <p className="text-slate-300 text-sm font-medium mb-1">Saldo Líquido em Contas</p>
                                                 <h2 className="text-3xl md:text-4xl font-bold mb-6">
                                                     {formatCurrency(dashboardStats.balance)}
                                                 </h2>
                                                 
-                                                <div className="grid grid-cols-2 gap-4 border-t border-purple-700/50 pt-4 max-w-md">
+                                                <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-4 max-w-md">
                                                     <div>
                                                         <div className="flex items-center text-emerald-400 text-xs font-semibold mb-1">
                                                             <i className="fa-solid fa-circle-arrow-down mr-1"></i> RECEITAS
@@ -399,7 +458,7 @@
                                         {globalFilter === 'casal' && (
                                             <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex items-center justify-between">
                                                 <div className="flex items-center space-x-4">
-                                                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl shrink-0">
+                                                    <div className={`w-12 h-12 rounded-2xl ${themeClasses.lightBg} ${themeClasses.text} flex items-center justify-center text-xl shrink-0`}>
                                                         <i className="fa-solid fa-scale-balanced"></i>
                                                     </div>
                                                     <div>
@@ -412,13 +471,13 @@
                                                         <span className="text-emerald-600 font-bold text-sm bg-emerald-50 px-3 py-1.5 rounded-full">Tudo quite! ✅</span>
                                                     ) : acertoDeContas > 0 ? (
                                                         <div className="flex flex-col items-end">
-                                                            <span className="text-xs text-slate-500">{PESSOA2.name} deve transferir:</span>
-                                                            <span className="font-bold text-pink-600 text-base">{formatCurrency(acertoDeContas)} para {PESSOA1.name}</span>
+                                                            <span className="text-xs text-slate-500">{pessoa2Name} deve transferir:</span>
+                                                            <span className="font-bold text-pink-600 text-base">{formatCurrency(acertoDeContas)} para {pessoa1Name}</span>
                                                         </div>
                                                     ) : (
                                                         <div className="flex flex-col items-end">
-                                                            <span className="text-xs text-slate-500">{PESSOA1.name} deve transferir:</span>
-                                                            <span className="font-bold text-blue-600 text-base">{formatCurrency(Math.abs(acertoDeContas))} para {PESSOA2.name}</span>
+                                                            <span className="text-xs text-slate-500">{pessoa1Name} deve transferir:</span>
+                                                            <span className="font-bold text-blue-600 text-base">{formatCurrency(Math.abs(acertoDeContas))} para {pessoa2Name}</span>
                                                         </div>
                                                     )}
                                                 </div>
@@ -429,10 +488,10 @@
                                         <div>
                                             <div className="flex justify-between items-center mb-3 px-1">
                                                 <h3 className="font-bold text-slate-800 text-base">Últimos Lançamentos</h3>
-                                                <button onClick={() => setCurrentTab('transacoes')} className="text-xs text-indigo-600 font-semibold hover:underline">Ver todos</button>
+                                                <button onClick={() => setCurrentTab('transacoes')} className={`text-xs ${themeClasses.text} font-semibold hover:underline`}>Ver todos</button>
                                             </div>
                                             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                                                {filteredTransactions.slice(0, 5).map(t => <TransactionRow key={t.id} t={t} />)}
+                                                {filteredTransactions.slice(0, 5).map(t => <TransactionRow key={t.id} t={t} pessoa1Name={pessoa1Name} pessoa2Name={pessoa2Name} />)}
                                                 {filteredTransactions.length === 0 && (
                                                     <p className="p-8 text-center text-slate-400 text-sm">Nenhum lançamento registrado neste mês.</p>
                                                 )}
@@ -441,24 +500,72 @@
                                     </div>
                                 )}
 
+                                {/* TAB: TRANSAÇÕES */}
                                 {currentTab === 'transacoes' && (
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center px-1">
                                             <h2 className="text-lg font-bold text-slate-800">Todos os Lançamentos</h2>
-                                            <button onClick={() => setIsTxModalOpen('expense')} className="md:hidden bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded-xl shadow">Novo</button>
+                                            <button onClick={() => { setEditingTx(null); setIsTxModalOpen(true); }} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>Novo Lançamento</button>
                                         </div>
-                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                                            {filteredTransactions.map(t => <TransactionRow key={t.id} t={t} />)}
+                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden divide-y divide-slate-100">
+                                            {filteredTransactions.map(t => (
+                                                <div key={t.id} className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
+                                                    <div className="flex items-center space-x-3 overflow-hidden flex-1">
+                                                        {(() => {
+                                                            const cat = CATEGORIAS.find(c => c.id === t.categoryId) || CATEGORIAS[CATEGORIAS.length - 1];
+                                                            const isIncome = t.type === 'income';
+                                                            const owner = getOwnerConfig(t.ownerId);
+                                                            return (
+                                                                <>
+                                                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white ${cat.color} shadow-sm shrink-0`}>
+                                                                        <span className="text-lg">{cat.icon}</span>
+                                                                    </div>
+                                                                    <div className="overflow-hidden flex-1">
+                                                                        <p className="font-semibold text-slate-800 text-sm truncate">{t.description} {t.installment && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-1">{t.installment}</span>}</p>
+                                                                        <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2">
+                                                                            <span>{formatDate(t.date)}</span>
+                                                                            <span>•</span>
+                                                                            <span className="truncate">{cat.name}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-end shrink-0 mx-4">
+                                                                        <span className={`font-bold text-sm ${isIncome ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                                                            {isIncome ? '+' : '-'}{formatCurrency(t.amount)}
+                                                                        </span>
+                                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 ${owner.color} text-white`}>
+                                                                            {owner.id === 'p1' ? pessoa1Name : owner.id === 'p2' ? pessoa2Name : owner.name}
+                                                                        </span>
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                    <div className="flex items-center space-x-1 shrink-0">
+                                                        <button onClick={() => { setEditingTx(t); setIsTxModalOpen(true); }} className="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center text-xs" title="Editar">
+                                                            <i className="fa-solid fa-pen"></i>
+                                                        </button>
+                                                        <button onClick={() => handleDeleteTransaction(t.id)} className="w-8 h-8 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center text-xs" title="Excluir">
+                                                            <i className="fa-solid fa-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
                                             {filteredTransactions.length === 0 && (
-                                                <p className="p-12 text-center text-slate-400 text-sm">Vazio.</p>
+                                                <p className="p-12 text-center text-slate-400 text-sm">Nenhum lançamento encontrado.</p>
                                             )}
                                         </div>
                                     </div>
                                 )}
 
+                                {/* TAB: CARTÕES */}
                                 {currentTab === 'cartoes' && (
                                     <div className="space-y-5">
-                                        <h2 className="text-lg font-bold text-slate-800 px-1">Cartões de Crédito</h2>
+                                        <div className="flex justify-between items-center px-1">
+                                            <h2 className="text-lg font-bold text-slate-800">Cartões de Crédito</h2>
+                                            <button onClick={() => setIsNewCardModalOpen(true)} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>
+                                                <i className="fa-solid fa-plus mr-1.5"></i> Novo Cartão
+                                            </button>
+                                        </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             {cards.filter(c => globalFilter === 'casal' || c.ownerId === globalFilter || c.ownerId === 'casal').map(card => {
                                                 let totalFatura = 0;
@@ -468,6 +575,8 @@
                                                         if (cycle === currentViewMonth) totalFatura += t.amount;
                                                     }
                                                 });
+
+                                                const owner = getOwnerConfig(card.ownerId);
 
                                                 return (
                                                     <div key={card.id} className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm relative overflow-hidden flex flex-col justify-between">
@@ -480,9 +589,21 @@
                                                                     </h3>
                                                                     <p className="text-xs text-slate-500 mt-0.5">Vencimento dia {card.dueDay} • Fechamento dia {card.closingDay}</p>
                                                                 </div>
-                                                                <span className={`text-xs font-bold px-2 py-1 rounded-full ${getOwnerConfig(card.ownerId).color} text-white`}>
-                                                                    {getOwnerConfig(card.ownerId).name}
-                                                                </span>
+                                                                <div className="flex items-center space-x-2">
+                                                                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${owner.color} text-white`}>
+                                                                        {card.ownerId === 'p1' ? pessoa1Name : card.ownerId === 'p2' ? pessoa2Name : 'Casal'}
+                                                                    </span>
+                                                                    <button onClick={() => setEditingCard(card)} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center text-xs" title="Editar">
+                                                                        <i className="fa-solid fa-pen"></i>
+                                                                    </button>
+                                                                    <button onClick={() => {
+                                                                        if (confirm(`Deseja excluir o cartão ${card.name}?`)) {
+                                                                            setCards(prev => prev.filter(c => c.id !== card.id));
+                                                                        }
+                                                                    }} className="w-7 h-7 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center text-xs" title="Excluir">
+                                                                        <i className="fa-solid fa-trash"></i>
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                             <div className="my-4">
                                                                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Fatura Atual</p>
@@ -505,68 +626,189 @@
                                     </div>
                                 )}
 
+                                {/* TAB: AJUSTES */}
+                                {currentTab === 'ajustes' && (
+                                    <AjustesTab 
+                                        pessoa1Name={pessoa1Name}
+                                        pessoa2Name={pessoa2Name}
+                                        onSaveNames={handleSaveNames}
+                                        themeColor={themeColor}
+                                        saveTheme={saveTheme}
+                                    />
+                                )}
+
                             </div>
                         </div>
 
-                        {/* Barra Inferior para Mobile */}
+                        {/* Barra Inferior Mobile */}
                         <div className="md:hidden bg-white border-t border-slate-200 absolute bottom-0 w-full z-20 pb-safe">
                             <div className="flex justify-around items-center p-3">
-                                <button onClick={() => setCurrentTab('home')} className={`flex flex-col items-center p-2 ${currentTab==='home' ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                <button onClick={() => setCurrentTab('home')} className={`flex flex-col items-center p-2 ${currentTab==='home' ? themeClasses.text : 'text-slate-400'}`}>
                                     <i className="fa-solid fa-house text-xl mb-1"></i>
                                     <span className="text-[10px] font-semibold">Início</span>
                                 </button>
-                                <button onClick={() => setCurrentTab('transacoes')} className={`flex flex-col items-center p-2 ${currentTab==='transacoes' ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                <button onClick={() => setCurrentTab('transacoes')} className={`flex flex-col items-center p-2 ${currentTab==='transacoes' ? themeClasses.text : 'text-slate-400'}`}>
                                     <i className="fa-solid fa-file-invoice text-xl mb-1"></i>
                                     <span className="text-[10px] font-semibold">Lançamentos</span>
                                 </button>
                                 
                                 <div className="relative -top-6">
                                     <button 
-                                        onClick={() => setIsTxModalOpen('expense')}
-                                        className="bg-indigo-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 border-4 border-slate-50 transform transition active:scale-95"
+                                        onClick={() => { setEditingTx(null); setIsTxModalOpen(true); }}
+                                        className={`${themeClasses.bg} text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg ${themeClasses.shadow} border-4 border-slate-50 transform transition active:scale-95`}
                                     >
                                         <i className="fa-solid fa-plus text-2xl"></i>
                                     </button>
                                 </div>
 
-                                <button onClick={() => setCurrentTab('cartoes')} className={`flex flex-col items-center p-2 ${currentTab==='cartoes' ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                <button onClick={() => setCurrentTab('cartoes')} className={`flex flex-col items-center p-2 ${currentTab==='cartoes' ? themeClasses.text : 'text-slate-400'}`}>
                                     <i className="fa-solid fa-credit-card text-xl mb-1"></i>
                                     <span className="text-[10px] font-semibold">Cartões</span>
+                                </button>
+                                <button onClick={() => setCurrentTab('ajustes')} className={`flex flex-col items-center p-2 ${currentTab==='ajustes' ? themeClasses.text : 'text-slate-400'}`}>
+                                    <i className="fa-solid fa-gear text-xl mb-1"></i>
+                                    <span className="text-[10px] font-semibold">Ajustes</span>
                                 </button>
                             </div>
                         </div>
 
                     </div>
 
-                    {/* Modal de Nova Transação */}
+                    {/* Modal de Transação (Novo / Editar) */}
                     {isTxModalOpen && (
                         <TransactionModal 
                             onClose={() => setIsTxModalOpen(false)}
-                            onSave={async (tx) => {
-                                if (user && window.firebaseAPI) {
-                                    try {
-                                        const { db, doc, setDoc, appId } = window.firebaseAPI;
-                                        const txRef = doc(db, 'artifacts', appId, 'public', 'data', 'transactions', tx.id);
-                                        await setDoc(txRef, tx);
-                                        setDbError(false);
-                                    } catch (error) {
-                                        setDbError(true);
-                                        setTransactions(prev => [...prev, tx]); 
+                            editingTx={editingTx}
+                            onSave={async (newTxs) => {
+                                const list = Array.isArray(newTxs) ? newTxs : [newTxs];
+                                for (let tx of list) {
+                                    if (user && window.firebaseAPI) {
+                                        try {
+                                            const { db, doc, setDoc, appId } = window.firebaseAPI;
+                                            const txRef = doc(db, 'artifacts', appId, 'public', 'data', 'transactions', tx.id);
+                                            await setDoc(txRef, tx);
+                                            setDbError(false);
+                                        } catch (error) {
+                                            setDbError(true);
+                                        }
                                     }
+                                }
+                                if (editingTx) {
+                                    setTransactions(prev => prev.map(t => t.id === list[0].id ? list[0] : t));
                                 } else {
-                                    setTransactions(prev => [...prev, tx]);
+                                    setTransactions(prev => [...prev, ...list]);
                                 }
                                 setIsTxModalOpen(false);
+                                setEditingTx(null);
                             }}
                             accounts={accounts}
                             cards={cards}
-                            initialType={typeof isTxModalOpen === 'string' ? isTxModalOpen : 'expense'}
+                            themeClasses={themeClasses}
+                            pessoa1Name={pessoa1Name}
+                            pessoa2Name={pessoa2Name}
+                        />
+                    )}
+
+                    {/* Modal de Novo Cartão */}
+                    {isNewCardModalOpen && (
+                        <NewCardModal
+                            onClose={() => setIsNewCardModalOpen(false)}
+                            onSave={(newCard) => {
+                                setCards(prev => [...prev, newCard]);
+                                setIsNewCardModalOpen(false);
+                            }}
+                            themeClasses={themeClasses}
+                            pessoa1Name={pessoa1Name}
+                            pessoa2Name={pessoa2Name}
+                        />
+                    )}
+
+                    {/* Modal de Editar Cartão */}
+                    {editingCard && (
+                        <EditCardModal 
+                            card={editingCard}
+                            onClose={() => setEditingCard(null)}
+                            onSave={(updatedCard) => {
+                                setCards(prev => prev.map(c => c.id === updatedCard.id ? updatedCard : c));
+                                setEditingCard(null);
+                            }}
+                            onDelete={(cardId) => {
+                                if (confirm("Deseja excluir este cartão?")) {
+                                    setCards(prev => prev.filter(c => c.id !== cardId));
+                                    setEditingCard(null);
+                                }
+                            }}
+                            themeClasses={themeClasses}
+                            pessoa1Name={pessoa1Name}
+                            pessoa2Name={pessoa2Name}
                         />
                     )}
                 </div>
             );
 
-            function TransactionRow({ t }) {
+            function AjustesTab({ pessoa1Name, pessoa2Name, onSaveNames, themeColor, saveTheme }) {
+                const [n1, setN1] = useState(pessoa1Name);
+                const [n2, setN2] = useState(pessoa2Name);
+
+                const handleSave = () => {
+                    if (!n1.trim() || !n2.trim()) {
+                        alert("Os nomes não podem ficar vazios.");
+                        return;
+                    }
+                    onSaveNames(n1, n2);
+                    alert("Nomes atualizados com sucesso!");
+                };
+
+                return (
+                    <div className="space-y-6 max-w-xl mx-auto bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-900 mb-1">Configurações e Nomes</h2>
+                            <p className="text-xs text-slate-500">Personalize os nomes das pessoas e a identidade visual do aplicativo.</p>
+                        </div>
+
+                        <div className="space-y-4 pt-2">
+                            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Nomes do Casal</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <span className="text-xs font-semibold text-blue-600 block mb-1">Nome Pessoa 1</span>
+                                    <input type="text" value={n1} onChange={e => setN1(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-indigo-500"/>
+                                </div>
+                                <div>
+                                    <span className="text-xs font-semibold text-pink-600 block mb-1">Nome Pessoa 2</span>
+                                    <input type="text" value={n2} onChange={e => setN2(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-indigo-500"/>
+                                </div>
+                            </div>
+                            <button onClick={handleSave} className="bg-slate-900 text-white font-bold text-xs px-5 py-3 rounded-xl shadow hover:bg-slate-800 transition-colors">
+                                Salvar Nomes
+                            </button>
+                        </div>
+
+                        <div className="border-t border-slate-100 pt-6 space-y-3">
+                            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Escolha a cor principal do App</label>
+                            <div className="grid grid-cols-5 gap-3">
+                                {[
+                                    { id: 'indigo', name: 'Índigo', color: 'bg-indigo-600' },
+                                    { id: 'emerald', name: 'Esmeralda', color: 'bg-emerald-600' },
+                                    { id: 'purple', name: 'Roxo', color: 'bg-purple-600' },
+                                    { id: 'rose', name: 'Rosa', color: 'bg-rose-600' },
+                                    { id: 'amber', name: 'Âmbar', color: 'bg-amber-600' },
+                                ].map(item => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => saveTheme(item.id)}
+                                        className={`h-14 rounded-2xl ${item.color} flex flex-col items-center justify-center text-white font-bold text-xs shadow-md transition-transform ${themeColor === item.id ? 'ring-4 ring-offset-2 ring-slate-400 scale-105' : 'opacity-80 hover:opacity-100'}`}
+                                    >
+                                        {themeColor === item.id && <i className="fa-solid fa-check text-sm mb-0.5"></i>}
+                                        <span>{item.name}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            function TransactionRow({ t, pessoa1Name, pessoa2Name }) {
                 const cat = CATEGORIAS.find(c => c.id === t.categoryId) || CATEGORIAS[CATEGORIAS.length - 1];
                 const isIncome = t.type === 'income';
                 const owner = getOwnerConfig(t.ownerId);
@@ -578,7 +820,7 @@
                         </div>
                         
                         <div className="ml-3 flex-1 overflow-hidden">
-                            <p className="font-semibold text-slate-800 text-sm truncate">{t.description}</p>
+                            <p className="font-semibold text-slate-800 text-sm truncate">{t.description} {t.installment && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-1">{t.installment}</span>}</p>
                             <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2">
                                 <span>{formatDate(t.date)}</span>
                                 <span>•</span>
@@ -591,24 +833,33 @@
                                 {isIncome ? '+' : '-'}{formatCurrency(t.amount)}
                             </span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 ${owner.color} text-white`}>
-                                {owner.name}
+                                {owner.id === 'p1' ? pessoa1Name : owner.id === 'p2' ? pessoa2Name : owner.name}
                             </span>
                         </div>
                     </div>
                 );
             }
 
-            function TransactionModal({ onClose, onSave, accounts, cards, initialType }) {
-                const [type, setType] = useState(initialType);
-                const [amountStr, setAmountStr] = useState('0,00');
-                const [description, setDescription] = useState('');
-                const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-                const [categoryId, setCategoryId] = useState('');
-                const [ownerId, setOwnerId] = useState('casal');
-                const [source, setSource] = useState('');
+            function TransactionModal({ onClose, onSave, accounts, cards, themeClasses, editingTx, pessoa1Name, pessoa2Name }) {
+                const [type, setType] = useState(editingTx ? editingTx.type : 'expense');
+                const [amountStr, setAmountStr] = useState(editingTx ? (editingTx.amount).toString() : '0,00');
+                const [description, setDescription] = useState(editingTx ? editingTx.description : '');
+                const [date, setDate] = useState(editingTx ? editingTx.date : new Date().toISOString().split('T')[0]);
+                const [categoryId, setCategoryId] = useState(editingTx ? editingTx.categoryId : '');
+                const [ownerId, setOwnerId] = useState(editingTx ? editingTx.ownerId : 'casal');
+                const [source, setSource] = useState(editingTx ? editingTx.sourceId : '');
+                const [installmentsCount, setInstallmentsCount] = useState(1);
 
                 const isExpense = type === 'expense';
                 const isIncome = type === 'income';
+                const selectedSourceIsCard = cards.some(c => c.id === source);
+
+                useEffect(() => {
+                    if (editingTx && editingTx.amount) {
+                        const num = editingTx.amount;
+                        setAmountStr((num / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                    }
+                }, [editingTx]);
 
                 const handleAmountChange = (e) => {
                     let val = e.target.value.replace(/\D/g, '');
@@ -618,27 +869,60 @@
                 };
 
                 const handleSave = () => {
-                    const amount = parseCurrencyString(amountStr);
-                    if (amount <= 0 || !description || !categoryId || !source) {
+                    const totalAmount = parseCurrencyString(amountStr);
+                    if (totalAmount <= 0 || !description || !categoryId || !source) {
                         alert("Preencha todos os campos obrigatórios"); 
                         return;
                     }
 
                     const isCard = cards.some(c => c.id === source);
-                    const newTx = {
-                        id: generateId(), type, amount, description, date, categoryId, 
-                        sourceId: source, sourceType: isCard ? 'card' : 'account',
-                        ownerId, status: isCard ? 'pending' : 'paid',
-                        paidById: ownerId === 'casal' ? (isCard ? cards.find(c=>c.id===source).ownerId : accounts.find(a=>a.id===source).ownerId) : null
-                    };
-                    onSave(newTx);
+
+                    if (editingTx) {
+                        const updatedTx = {
+                            ...editingTx,
+                            type,
+                            amount: totalAmount,
+                            description,
+                            date,
+                            categoryId,
+                            sourceId: source,
+                            sourceType: isCard ? 'card' : 'account',
+                            ownerId,
+                            status: isCard ? 'pending' : 'paid',
+                            paidById: ownerId === 'casal' ? (isCard ? cards.find(c=>c.id===source).ownerId : accounts.find(a=>a.id===source)?.ownerId || 'casal') : null
+                        };
+                        onSave(updatedTx);
+                    } else {
+                        const count = isCard && installmentsCount > 1 ? parseInt(installmentsCount, 10) : 1;
+                        const amountPerInstallment = Math.round(totalAmount / count);
+                        const newTxs = [];
+
+                        for (let i = 0; i < count; i++) {
+                            const txDate = i === 0 ? date : addMonthsToDateStr(date, i);
+                            newTxs.push({
+                                id: generateId() + '-' + i,
+                                type,
+                                amount: amountPerInstallment,
+                                description: count > 1 ? `${description} (${i + 1}/${count})` : description,
+                                date: txDate,
+                                categoryId,
+                                sourceId: source,
+                                sourceType: isCard ? 'card' : 'account',
+                                ownerId,
+                                status: isCard ? 'pending' : 'paid',
+                                installment: count > 1 ? `${i + 1}/${count}` : null,
+                                paidById: ownerId === 'casal' ? (isCard ? cards.find(c=>c.id===source).ownerId : accounts.find(a=>a.id===source)?.ownerId || 'casal') : null
+                            });
+                        }
+                        onSave(newTxs);
+                    }
                 };
 
                 return (
                     <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
                         <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                             <div className="flex justify-between items-center p-5 border-b border-slate-100">
-                                <h2 className="text-lg font-bold text-slate-800">Novo Lançamento</h2>
+                                <h2 className="text-lg font-bold text-slate-800">{editingTx ? 'Editar Lançamento' : 'Novo Lançamento'}</h2>
                                 <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200">
                                     <i className="fa-solid fa-xmark"></i>
                                 </button>
@@ -650,7 +934,7 @@
                                 </div>
                                 
                                 <div className="text-center py-2">
-                                    <label className="text-xs text-slate-400 font-semibold uppercase mb-1 block">Valor</label>
+                                    <label className="text-xs text-slate-400 font-semibold uppercase mb-1 block">Valor Total</label>
                                     <div className="flex items-center justify-center text-3xl md:text-4xl font-bold text-slate-800">
                                         <span className="text-xl mr-1 text-slate-400">R$</span>
                                         <input type="text" inputMode="numeric" value={amountStr} onChange={handleAmountChange} className="bg-transparent border-none text-center outline-none w-full max-w-[220px]"/>
@@ -671,8 +955,8 @@
                                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">De quem?</label>
                                         <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-indigo-500 appearance-none">
                                             <option value="casal">Casal (Dividir)</option>
-                                            <option value="p1">{PESSOA1.name}</option>
-                                            <option value="p2">{PESSOA2.name}</option>
+                                            <option value="p1">{pessoa1Name}</option>
+                                            <option value="p2">{pessoa2Name}</option>
                                         </select>
                                     </div>
                                 </div>
@@ -691,18 +975,220 @@
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">{isExpense ? 'Forma de Pagamento' : 'Onde recebeu?'}</label>
                                     <select value={source} onChange={e => setSource(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-indigo-500 appearance-none">
                                         <option value="">Selecione...</option>
-                                        <optgroup label="Contas">
+                                        {isExpense && (
+                                            <>
+                                                <option value="pix_geral">⚡ PIX</option>
+                                                <option value="deb_geral">💳 Débito</option>
+                                            </>
+                                        )}
+                                        <optgroup label="Contas Bancárias">
                                             {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                                         </optgroup>
                                         {isExpense && <optgroup label="Cartões de Crédito">
-                                            {cards.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            {cards.map(c => <option key={c.id} value={c.id}>{c.name} ({c.ownerId === 'p1' ? pessoa1Name : c.ownerId === 'p2' ? pessoa2Name : 'Casal'})</option>)}
                                         </optgroup>}
                                     </select>
                                 </div>
 
+                                {isExpense && selectedSourceIsCard && !editingTx && (
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Parcelamento</label>
+                                        <select value={installmentsCount} onChange={e => setInstallmentsCount(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-indigo-500 appearance-none">
+                                            {[...Array(12)].map((_, i) => (
+                                                <option key={i + 1} value={i + 1}>{i === 0 ? 'À vista (1x)' : `${i + 1}x vezes`}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
                                 <div className="pt-2">
-                                    <button onClick={handleSave} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-base py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 active:scale-95 transition-transform">
+                                    <button onClick={handleSave} className={`w-full ${themeClasses.bg} ${themeClasses.hover} text-white font-bold text-base py-3.5 rounded-xl shadow-lg ${themeClasses.shadow} active:scale-95 transition-transform`}>
                                         Salvar Lançamento
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            function NewCardModal({ onClose, onSave, themeClasses, pessoa1Name, pessoa2Name }) {
+                const [name, setName] = useState('');
+                const [limitStr, setLimitStr] = useState('1.000,00');
+                const [closingDay, setClosingDay] = useState(10);
+                const [dueDay, setDueDay] = useState(17);
+                const [ownerId, setOwnerId] = useState('casal');
+                const [color, setColor] = useState('bg-purple-700');
+
+                const handleLimitChange = (e) => {
+                    let val = e.target.value.replace(/\D/g, '');
+                    if (val === '') val = '0';
+                    const num = parseInt(val, 10);
+                    setLimitStr((num / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+                };
+
+                const handleSave = () => {
+                    if (!name.trim()) {
+                        alert("Digite o nome do cartão.");
+                        return;
+                    }
+                    const limit = parseCurrencyString(limitStr);
+                    onSave({
+                        id: generateId(),
+                        name,
+                        limit,
+                        closingDay: parseInt(closingDay, 10),
+                        dueDay: parseInt(dueDay, 10),
+                        ownerId,
+                        color
+                    });
+                };
+
+                return (
+                    <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-slate-100">
+                                <h2 className="text-lg font-bold text-slate-800">Novo Cartão de Crédito</h2>
+                                <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200">
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Nome do Cartão</label>
+                                    <input type="text" placeholder="Ex: Nubank, Visa Infinite..." value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Limite (R$)</label>
+                                    <input type="text" inputMode="numeric" value={limitStr} onChange={handleLimitChange} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Dia Fechamento</label>
+                                        <input type="number" min="1" max="31" value={closingDay} onChange={e => setClosingDay(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Dia Vencimento</label>
+                                        <input type="number" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">De quem?</label>
+                                        <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none appearance-none">
+                                            <option value="casal">Casal</option>
+                                            <option value="p1">{pessoa1Name}</option>
+                                            <option value="p2">{pessoa2Name}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Cor</label>
+                                        <select value={color} onChange={e => setColor(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none appearance-none">
+                                            <option value="bg-purple-700">Roxo (Nubank)</option>
+                                            <option value="bg-red-600">Vermelho</option>
+                                            <option value="bg-blue-600">Azul</option>
+                                            <option value="bg-slate-900">Preto</option>
+                                            <option value="bg-emerald-600">Verde</option>
+                                            <option value="bg-amber-600">Laranja/Dourado</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="pt-4">
+                                    <button onClick={handleSave} className={`w-full ${themeClasses.bg} ${themeClasses.hover} text-white font-bold py-3.5 rounded-xl shadow-lg transition-transform`}>
+                                        Adicionar Cartão
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            function EditCardModal({ card, onClose, onSave, onDelete, themeClasses, pessoa1Name, pessoa2Name }) {
+                const [name, setName] = useState(card.name);
+                const [limitStr, setLimitStr] = useState((card.limit / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+                const [closingDay, setClosingDay] = useState(card.closingDay);
+                const [dueDay, setDueDay] = useState(card.dueDay);
+                const [ownerId, setOwnerId] = useState(card.ownerId || 'casal');
+                const [color, setColor] = useState(card.color || 'bg-purple-700');
+
+                const handleLimitChange = (e) => {
+                    let val = e.target.value.replace(/\D/g, '');
+                    if (val === '') val = '0';
+                    const num = parseInt(val, 10);
+                    setLimitStr((num / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+                };
+
+                const handleSave = () => {
+                    const limit = parseCurrencyString(limitStr);
+                    onSave({
+                        ...card,
+                        name,
+                        limit,
+                        closingDay: parseInt(closingDay, 10),
+                        dueDay: parseInt(dueDay, 10),
+                        ownerId,
+                        color
+                    });
+                };
+
+                return (
+                    <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-slate-100">
+                                <h2 className="text-lg font-bold text-slate-800">Editar Cartão</h2>
+                                <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200">
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Nome do Cartão</label>
+                                    <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Limite (R$)</label>
+                                    <input type="text" inputMode="numeric" value={limitStr} onChange={handleLimitChange} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Dia Fechamento</label>
+                                        <input type="number" min="1" max="31" value={closingDay} onChange={e => setClosingDay(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Dia Vencimento</label>
+                                        <input type="number" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none"/>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">De quem?</label>
+                                        <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none appearance-none">
+                                            <option value="casal">Casal</option>
+                                            <option value="p1">{pessoa1Name}</option>
+                                            <option value="p2">{pessoa2Name}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Cor</label>
+                                        <select value={color} onChange={e => setColor(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none appearance-none">
+                                            <option value="bg-purple-700">Roxo</option>
+                                            <option value="bg-red-600">Vermelho</option>
+                                            <option value="bg-blue-600">Azul</option>
+                                            <option value="bg-slate-900">Preto</option>
+                                            <option value="bg-emerald-600">Verde</option>
+                                            <option value="bg-amber-600">Laranja/Dourado</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="pt-4 flex space-x-3">
+                                    <button onClick={() => onDelete(card.id)} className="flex-1 bg-red-50 text-red-600 hover:bg-red-100 font-bold py-3.5 rounded-xl transition-colors">
+                                        Excluir
+                                    </button>
+                                    <button onClick={handleSave} className={`flex-1 ${themeClasses.bg} ${themeClasses.hover} text-white font-bold py-3.5 rounded-xl shadow-lg transition-transform`}>
+                                        Salvar
                                     </button>
                                 </div>
                             </div>
