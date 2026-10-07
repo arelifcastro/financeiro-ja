@@ -92,8 +92,8 @@
         ];
 
         const INITIAL_CARDS = [
-            { id: 'card_nup1', ownerId: 'p1', name: 'Nubank Alex', limit: 500000, closingDay: 25, dueDay: 2, accountId: 'acc_nup1', color: 'bg-purple-700' },
-            { id: 'card_nup2', ownerId: 'p2', name: 'Nubank Bia', limit: 800000, closingDay: 20, dueDay: 27, accountId: 'acc_nup2', color: 'bg-purple-700' },
+            { id: 'card_nup1', ownerId: 'p1', name: 'Nubank Jordan', limit: 500000, closingDay: 25, dueDay: 2, accountId: 'acc_nup1', color: 'bg-purple-700' },
+            { id: 'card_nup2', ownerId: 'p2', name: 'Nubank Areli', limit: 800000, closingDay: 20, dueDay: 27, accountId: 'acc_nup2', color: 'bg-purple-700' },
             { id: 'card_bra', ownerId: 'casal', name: 'Bradesco', limit: 1200000, closingDay: 5, dueDay: 12, accountId: 'acc_bra', color: 'bg-red-600' },
             { id: 'card_cai', ownerId: 'casal', name: 'Caixa', limit: 300000, closingDay: 10, dueDay: 17, accountId: 'acc_cai', color: 'bg-blue-600' }
         ];
@@ -148,11 +148,19 @@
         };
 
         function FinancasCasalApp() {
-            const [globalFilter, setGlobalFilter] = useState('casal');
+            const [globalFilter, setGlobalFilter] = useState('casal'); // 'casal', 'p1', 'p2'
             const [currentTab, setCurrentTab] = useState('home');
             
             const [user, setUser] = useState(null);
             
+            // Nomes personalizados (Jordan e Areli como padrão)
+            const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Jordan');
+            const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Areli');
+
+            const PESSOA1 = useMemo(() => ({ id: 'p1', name: pessoa1Name, color: 'bg-blue-500', avatar: 'J' }), [pessoa1Name]);
+            const PESSOA2 = useMemo(() => ({ id: 'p2', name: pessoa2Name, color: 'bg-pink-500', avatar: 'A' }), [pessoa2Name]);
+            const CASAL = useMemo(() => ({ id: 'casal', name: 'Casal', color: 'bg-purple-600', avatar: '👥' }), []);
+
             // Carrega cartões do localStorage ou usa padrão
             const [cards, setCards] = useState(() => {
                 try {
@@ -180,13 +188,6 @@
             const [manualInvoices, setManualInvoices] = useState(() => {
                 try { return JSON.parse(localStorage.getItem('fc_manual_invoices')) || {}; } catch(e) { return {}; }
             });
-            
-            const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Alex');
-            const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Bia');
-
-            const PESSOA1 = useMemo(() => ({ id: 'p1', name: pessoa1Name, color: 'bg-blue-500', avatar: 'A' }), [pessoa1Name]);
-            const PESSOA2 = useMemo(() => ({ id: 'p2', name: pessoa2Name, color: 'bg-pink-500', avatar: 'B' }), [pessoa2Name]);
-            const CASAL = useMemo(() => ({ id: 'casal', name: 'Casal', color: 'bg-purple-600', avatar: '👥' }), []);
 
             const [isTxModalOpen, setIsTxModalOpen] = useState(false);
             const [editingTx, setEditingTx] = useState(null);
@@ -200,15 +201,17 @@
             const [dbError, setDbError] = useState(false);
             const [firebaseReady, setFirebaseReady] = useState(false);
 
-            // Salva dados no localStorage sempre que mudarem
+            // Salva cartões no localStorage sempre que mudarem
             useEffect(() => {
                 localStorage.setItem('fc_cards', JSON.stringify(cards));
             }, [cards]);
 
+            // Salva contas no localStorage sempre que mudarem
             useEffect(() => {
                 localStorage.setItem('fc_accounts', JSON.stringify(accounts));
             }, [accounts]);
 
+            // Salva transações no localStorage sempre que mudarem
             useEffect(() => {
                 localStorage.setItem('fc_transactions', JSON.stringify(transactions));
             }, [transactions]);
@@ -249,7 +252,6 @@
                     setDbError(false);
                     const loadedTxs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     if (loadedTxs.length > 0) {
-                        // Mescla com locais para garantir que itens locais não sumam se offline
                         setTransactions(prev => {
                             const map = new Map();
                             prev.forEach(t => map.set(t.id, t));
@@ -272,15 +274,23 @@
 
             const getOwnerConfig = (id) => [PESSOA1, PESSOA2, CASAL].find(p => p.id === id) || CASAL;
             
+            // Filtro estrito por pessoa ou casal
             const filteredTransactions = useMemo(() => {
                 return transactions.filter(t => {
                     const tMonth = t.date.substring(0, 7);
                     if (tMonth !== currentViewMonth) return false;
                     
-                    if (globalFilter === 'casal') return true; 
-                    return t.ownerId === globalFilter || t.ownerId === 'casal';
+                    if (globalFilter === 'casal') return t.ownerId === 'casal'; 
+                    return t.ownerId === globalFilter;
                 }).sort((a, b) => new Date(b.date) - new Date(a.date));
             }, [transactions, globalFilter, currentViewMonth]);
+
+            const filteredCards = useMemo(() => {
+                return cards.filter(c => {
+                    if (globalFilter === 'casal') return c.ownerId === 'casal';
+                    return c.ownerId === globalFilter;
+                });
+            }, [cards, globalFilter]);
 
             const dashboardStats = useMemo(() => {
                 let income = 0;
@@ -288,19 +298,12 @@
                 let cardExpense = 0;
 
                 filteredTransactions.forEach(t => {
-                    if (t.ownerId === 'casal') {
-                        if (globalFilter !== 'casal') return;
-                    }
-
                     if (t.type === 'income') income += t.amount;
                     if (t.type === 'expense' && t.sourceType === 'account') accountExpense += t.amount;
                     if (t.type === 'expense' && t.sourceType === 'card') cardExpense += t.amount;
                 });
 
-                cards.forEach(card => {
-                    if (globalFilter !== 'casal' && card.ownerId !== globalFilter && card.ownerId !== 'casal') return;
-                    if (card.ownerId === 'casal' && globalFilter !== 'casal') return;
-
+                filteredCards.forEach(card => {
                     let cardTxSum = 0;
                     transactions.forEach(t => {
                         if (t.sourceType === 'card' && t.sourceId === card.id) {
@@ -315,14 +318,14 @@
                     if (manualExtra > 0) {
                         cardExpense += manualExtra;
                     } else if (cardTxSum > 0 && manualExtra === 0) {
-                        // já somado nas transações
+                        cardExpense += cardTxSum;
                     }
                 });
 
                 const totalExpense = accountExpense + cardExpense;
 
                 return { income, expense: totalExpense, accountExpense, cardExpense, balance: income - totalExpense };
-            }, [filteredTransactions, globalFilter, cards, manualInvoices, transactions, currentViewMonth]);
+            }, [filteredTransactions, filteredCards, cards, manualInvoices, transactions, currentViewMonth]);
 
             const acertoDeContas = useMemo(() => {
                 let p2OwesP1 = 0; 
@@ -575,7 +578,7 @@
                                             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                                                 {filteredTransactions.slice(0, 5).map(t => <TransactionRow key={t.id} t={t} pessoa1Name={pessoa1Name} pessoa2Name={pessoa2Name} />)}
                                                 {filteredTransactions.length === 0 && (
-                                                    <p className="p-8 text-center text-slate-400 text-sm">Nenhum lançamento registrado neste mês.</p>
+                                                    <p className="p-8 text-center text-slate-400 text-sm">Nenhum lançamento registrado neste filtro/mês.</p>
                                                 )}
                                             </div>
                                         </div>
@@ -586,7 +589,7 @@
                                 {currentTab === 'transacoes' && (
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center px-1">
-                                            <h2 className="text-lg font-bold text-slate-800">Todos os Lançamentos</h2>
+                                            <h2 className="text-lg font-bold text-slate-800">Lançamentos de {globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}</h2>
                                             <button onClick={() => { setEditingTx(null); setIsTxModalOpen(true); }} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>Novo Lançamento</button>
                                         </div>
                                         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden divide-y divide-slate-100">
@@ -633,7 +636,7 @@
                                                 </div>
                                             ))}
                                             {filteredTransactions.length === 0 && (
-                                                <p className="p-12 text-center text-slate-400 text-sm">Nenhum lançamento encontrado.</p>
+                                                <p className="p-12 text-center text-slate-400 text-sm">Nenhum lançamento encontrado para este filtro.</p>
                                             )}
                                         </div>
                                     </div>
@@ -643,13 +646,13 @@
                                 {currentTab === 'cartoes' && (
                                     <div className="space-y-5">
                                         <div className="flex justify-between items-center px-1">
-                                            <h2 className="text-lg font-bold text-slate-800">Cartões de Crédito & Faturas</h2>
+                                            <h2 className="text-lg font-bold text-slate-800">Cartões de {globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}</h2>
                                             <button onClick={() => setIsNewCardModalOpen(true)} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>
                                                 <i className="fa-solid fa-plus mr-1.5"></i> Novo Cartão
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {cards.filter(c => globalFilter === 'casal' || c.ownerId === globalFilter || c.ownerId === 'casal').map(card => {
+                                            {filteredCards.map(card => {
                                                 let totalFaturaTx = 0;
                                                 transactions.forEach(t => {
                                                     if (t.sourceType === 'card' && t.sourceId === card.id) {
@@ -714,6 +717,9 @@
                                                     </div>
                                                 )
                                             })}
+                                            {filteredCards.length === 0 && (
+                                                <p className="p-12 text-center text-slate-400 text-sm md:col-span-2">Nenhum cartão cadastrado para este perfil.</p>
+                                            )}
                                         </div>
                                     </div>
                                 )}
