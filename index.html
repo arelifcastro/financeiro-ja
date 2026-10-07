@@ -156,12 +156,10 @@
             const [cards, setCards] = useState(INITIAL_CARDS);
             const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
             
-            // Faturas adicionais de cartões manuais por ciclo (cardId_cycle: amount)
             const [manualInvoices, setManualInvoices] = useState(() => {
                 try { return JSON.parse(localStorage.getItem('fc_manual_invoices')) || {}; } catch(e) { return {}; }
             });
             
-            // Nomes customizáveis das pessoas
             const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Jordan');
             const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Areli');
 
@@ -246,20 +244,47 @@
 
             const dashboardStats = useMemo(() => {
                 let income = 0;
-                let expense = 0;
-                let pendingCards = 0;
+                let accountExpense = 0;
+                let cardExpense = 0;
 
                 filteredTransactions.forEach(t => {
                     let factor = 1;
                     if (t.ownerId === 'casal' && globalFilter !== 'casal') factor = 0.5;
 
                     if (t.type === 'income') income += t.amount * factor;
-                    if (t.type === 'expense' && t.sourceType === 'account') expense += t.amount * factor;
-                    if (t.type === 'expense' && t.sourceType === 'card') pendingCards += t.amount * factor;
+                    if (t.type === 'expense' && t.sourceType === 'account') accountExpense += t.amount * factor;
+                    if (t.type === 'expense' && t.sourceType === 'card') cardExpense += t.amount * factor;
                 });
 
-                return { income, expense, pendingCards, balance: income - expense };
-            }, [filteredTransactions, globalFilter]);
+                // Soma também o valor das faturas manuais e transações de cartão por ciclo para o mês atual
+                cards.forEach(card => {
+                    if (globalFilter !== 'casal' && card.ownerId !== globalFilter && card.ownerId !== 'casal') return;
+
+                    let cardTxSum = 0;
+                    transactions.forEach(t => {
+                        if (t.sourceType === 'card' && t.sourceId === card.id) {
+                            const cycle = getFaturaCycle(t.date, card.closingDay);
+                            if (cycle === currentViewMonth) cardTxSum += t.amount;
+                        }
+                    });
+
+                    const manualKey = `${card.id}_${currentViewMonth}`;
+                    const manualExtra = manualInvoices[manualKey] || 0;
+                    
+                    let factor = 1;
+                    if (card.ownerId === 'casal' && globalFilter !== 'casal') factor = 0.5;
+
+                    // Se a fatura manual foi preenchida, usamos ela como total do cartão daquele ciclo
+                    if (manualExtra > 0) {
+                        // Evitamos duplicar se já tem transações de cartão cadastradas ou somamos se for extra
+                        cardExpense += manualExtra * factor;
+                    }
+                });
+
+                const totalExpense = accountExpense + cardExpense;
+
+                return { income, expense: totalExpense, accountExpense, cardExpense, balance: income - totalExpense };
+            }, [filteredTransactions, globalFilter, cards, manualInvoices, transactions, currentViewMonth]);
 
             const acertoDeContas = useMemo(() => {
                 let p2OwesP1 = 0; 
@@ -459,7 +484,7 @@
                                                     </div>
                                                     <div>
                                                         <div className="flex items-center text-red-300 text-xs font-semibold mb-1">
-                                                            <i className="fa-solid fa-circle-arrow-up mr-1"></i> DESPESAS
+                                                            <i className="fa-solid fa-circle-arrow-up mr-1"></i> DESPESAS TOTAIS
                                                         </div>
                                                         <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.expense)}</p>
                                                     </div>
