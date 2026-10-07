@@ -92,16 +92,16 @@
         ];
 
         const INITIAL_CARDS = [
-            { id: 'card_nup1', ownerId: 'p1', name: 'Nubank', limit: 500000, closingDay: 25, dueDay: 2, accountId: 'acc_nup1', color: 'bg-purple-700' },
-            { id: 'card_nup2', ownerId: 'p2', name: 'Nubank', limit: 800000, closingDay: 20, dueDay: 27, accountId: 'acc_nup2', color: 'bg-purple-700' },
+            { id: 'card_nup1', ownerId: 'p1', name: 'Nubank Alex', limit: 500000, closingDay: 25, dueDay: 2, accountId: 'acc_nup1', color: 'bg-purple-700' },
+            { id: 'card_nup2', ownerId: 'p2', name: 'Nubank Bia', limit: 800000, closingDay: 20, dueDay: 27, accountId: 'acc_nup2', color: 'bg-purple-700' },
             { id: 'card_bra', ownerId: 'casal', name: 'Bradesco', limit: 1200000, closingDay: 5, dueDay: 12, accountId: 'acc_bra', color: 'bg-red-600' },
             { id: 'card_cai', ownerId: 'casal', name: 'Caixa', limit: 300000, closingDay: 10, dueDay: 17, accountId: 'acc_cai', color: 'bg-blue-600' }
         ];
 
         const INITIAL_TRANSACTIONS = [
             { id: 't1', type: 'income', amount: 800000, description: 'Salário', date: new Date().toISOString().split('T')[0], categoryId: 'cat_salario', sourceId: 'acc_bra', sourceType: 'account', ownerId: 'p1', status: 'paid' },
-            { id: 't2', type: 'expense', amount: 12000, description: 'Luz', date: new Date().toISOString().split('T')[0], categoryId: 'cat_contas', sourceId: 'acc_bra', sourceType: 'account', ownerId: 'casal', splitType: '50/50', paidById: 'p1', status: 'paid' },
-            { id: 't3', type: 'expense', amount: 35000, description: 'Supermercado', date: new Date().toISOString().split('T')[0], categoryId: 'cat_mercado', sourceId: 'card_bra', sourceType: 'card', ownerId: 'casal', splitType: '50/50', paidById: 'casal', status: 'pending' },
+            { id: 't2', type: 'expense', amount: 12000, description: 'Luz', date: new Date().toISOString().split('T')[0], categoryId: 'cat_contas', sourceId: 'acc_bra', sourceType: 'account', ownerId: 'casal', paidById: 'p1', status: 'paid' },
+            { id: 't3', type: 'expense', amount: 35000, description: 'Supermercado', date: new Date().toISOString().split('T')[0], categoryId: 'cat_mercado', sourceId: 'card_bra', sourceType: 'card', ownerId: 'casal', paidById: 'casal', status: 'pending' },
         ];
 
         const formatCurrency = (cents) => {
@@ -160,8 +160,8 @@
                 try { return JSON.parse(localStorage.getItem('fc_manual_invoices')) || {}; } catch(e) { return {}; }
             });
             
-            const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Jordan');
-            const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Areli');
+            const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Alex');
+            const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Bia');
 
             const PESSOA1 = useMemo(() => ({ id: 'p1', name: pessoa1Name, color: 'bg-blue-500', avatar: 'A' }), [pessoa1Name]);
             const PESSOA2 = useMemo(() => ({ id: 'p2', name: pessoa2Name, color: 'bg-pink-500', avatar: 'B' }), [pessoa2Name]);
@@ -249,7 +249,10 @@
 
                 filteredTransactions.forEach(t => {
                     let factor = 1;
-                    if (t.ownerId === 'casal' && globalFilter !== 'casal') factor = 0.5;
+                    // Se a despesa/receita for do Casal e o filtro for individual, itens do casal não entram na conta individual
+                    if (t.ownerId === 'casal') {
+                        if (globalFilter !== 'casal') return; // Itens do casal aparecem apenas na visão Casal
+                    }
 
                     if (t.type === 'income') income += t.amount * factor;
                     if (t.type === 'expense' && t.sourceType === 'account') accountExpense += t.amount * factor;
@@ -259,6 +262,7 @@
                 // Soma também o valor das faturas manuais e transações de cartão por ciclo para o mês atual
                 cards.forEach(card => {
                     if (globalFilter !== 'casal' && card.ownerId !== globalFilter && card.ownerId !== 'casal') return;
+                    if (card.ownerId === 'casal' && globalFilter !== 'casal') return;
 
                     let cardTxSum = 0;
                     transactions.forEach(t => {
@@ -271,13 +275,13 @@
                     const manualKey = `${card.id}_${currentViewMonth}`;
                     const manualExtra = manualInvoices[manualKey] || 0;
                     
-                    let factor = 1;
-                    if (card.ownerId === 'casal' && globalFilter !== 'casal') factor = 0.5;
-
                     // Se a fatura manual foi preenchida, usamos ela como total do cartão daquele ciclo
                     if (manualExtra > 0) {
-                        // Evitamos duplicar se já tem transações de cartão cadastradas ou somamos se for extra
-                        cardExpense += manualExtra * factor;
+                        cardExpense += manualExtra;
+                    } else if (cardTxSum > 0 && manualExtra === 0) {
+                        // Evita duplicar se já somou via transação individual de cartão
+                        // Como 'filteredTransactions' já soma as transações de cartão, não precisamos re-somar cardTxSum aqui para não duplicar, 
+                        // a menos que não estivessem na lista. Mas filteredTransactions já contém as t.sourceType === 'card'!
                     }
                 });
 
@@ -475,7 +479,7 @@
                                                     {formatCurrency(dashboardStats.balance)}
                                                 </h2>
                                                 
-                                                <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-4 max-w-md">
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-slate-800 pt-4">
                                                     <div>
                                                         <div className="flex items-center text-emerald-400 text-xs font-semibold mb-1">
                                                             <i className="fa-solid fa-circle-arrow-down mr-1"></i> RECEITAS
@@ -484,9 +488,15 @@
                                                     </div>
                                                     <div>
                                                         <div className="flex items-center text-red-300 text-xs font-semibold mb-1">
-                                                            <i className="fa-solid fa-circle-arrow-up mr-1"></i> DESPESAS TOTAIS
+                                                            <i className="fa-solid fa-circle-arrow-up mr-1"></i> DESPESAS (CONTA)
                                                         </div>
-                                                        <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.expense)}</p>
+                                                        <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.accountExpense)}</p>
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center text-purple-300 text-xs font-semibold mb-1">
+                                                            <i className="fa-solid fa-credit-card mr-1"></i> CARTÃO DE CRÉDITO
+                                                        </div>
+                                                        <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.cardExpense)}</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -616,7 +626,7 @@
 
                                                 const manualKey = `${card.id}_${currentViewMonth}`;
                                                 const manualExtra = manualInvoices[manualKey] || 0;
-                                                const totalFatura = totalFaturaTx + manualExtra;
+                                                const totalFatura = manualExtra > 0 ? manualExtra : totalFaturaTx;
 
                                                 const owner = getOwnerConfig(card.ownerId);
 
@@ -653,7 +663,7 @@
                                                             <div className="my-4">
                                                                 <div className="flex justify-between items-baseline">
                                                                     <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Fatura Atual</p>
-                                                                    {manualExtra > 0 && <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-bold">Inclui fatura manual</span>}
+                                                                    {manualExtra > 0 && <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-bold">Fatura manual</span>}
                                                                 </div>
                                                                 <p className="text-3xl font-bold text-slate-800">{formatCurrency(totalFatura)}</p>
                                                             </div>
@@ -908,7 +918,7 @@
                                         <span className="text-xl mr-1 text-slate-400">R$</span>
                                         <input type="text" inputMode="numeric" value={amountStr} onChange={handleAmountChange} className="bg-transparent border-none text-center outline-none w-full max-w-[200px]"/>
                                     </div>
-                                    <p className="text-[11px] text-slate-400 mt-2">Adicionar um valor manual soma-se às compras feitas no cartão para este mês.</p>
+                                    <p className="text-[11px] text-slate-400 mt-2">Definir um valor manual para esta fatura define diretamente o total do mês.</p>
                                 </div>
 
                                 <div className="pt-2">
@@ -1068,7 +1078,7 @@
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">De quem?</label>
                                         <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="casal">Casal (Dividir)</option>
+                                            <option value="casal">Casal (Compartilhado)</option>
                                             <option value="p1">{pessoa1Name}</option>
                                             <option value="p2">{pessoa2Name}</option>
                                         </select>
@@ -1096,7 +1106,7 @@
                                             </>
                                         )}
                                         <optgroup label="Contas Bancárias">
-                                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.ownerId === 'p1' ? pessoa1Name : a.ownerId === 'p2' ? pessoa2Name : 'Casal'})</option>)}
                                         </optgroup>
                                         {isExpense && <optgroup label="Cartões de Crédito">
                                             {cards.map(c => <option key={c.id} value={c.id}>{c.name} ({c.ownerId === 'p1' ? pessoa1Name : c.ownerId === 'p2' ? pessoa2Name : 'Casal'})</option>)}
