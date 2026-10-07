@@ -152,9 +152,30 @@
             const [currentTab, setCurrentTab] = useState('home');
             
             const [user, setUser] = useState(null);
-            const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS);
-            const [cards, setCards] = useState(INITIAL_CARDS);
-            const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
+            
+            // Carrega cartões do localStorage ou usa padrão
+            const [cards, setCards] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('fc_cards');
+                    return saved ? JSON.parse(saved) : INITIAL_CARDS;
+                } catch(e) { return INITIAL_CARDS; }
+            });
+
+            // Carrega contas do localStorage ou usa padrão
+            const [accounts, setAccounts] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('fc_accounts');
+                    return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
+                } catch(e) { return INITIAL_ACCOUNTS; }
+            });
+
+            // Carrega transações do localStorage ou usa padrão
+            const [transactions, setTransactions] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('fc_transactions');
+                    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+                } catch(e) { return INITIAL_TRANSACTIONS; }
+            });
             
             const [manualInvoices, setManualInvoices] = useState(() => {
                 try { return JSON.parse(localStorage.getItem('fc_manual_invoices')) || {}; } catch(e) { return {}; }
@@ -178,6 +199,19 @@
             const [authError, setAuthError] = useState(false);
             const [dbError, setDbError] = useState(false);
             const [firebaseReady, setFirebaseReady] = useState(false);
+
+            // Salva dados no localStorage sempre que mudarem
+            useEffect(() => {
+                localStorage.setItem('fc_cards', JSON.stringify(cards));
+            }, [cards]);
+
+            useEffect(() => {
+                localStorage.setItem('fc_accounts', JSON.stringify(accounts));
+            }, [accounts]);
+
+            useEffect(() => {
+                localStorage.setItem('fc_transactions', JSON.stringify(transactions));
+            }, [transactions]);
 
             useEffect(() => {
                 const checkFb = setInterval(() => {
@@ -215,7 +249,13 @@
                     setDbError(false);
                     const loadedTxs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     if (loadedTxs.length > 0) {
-                        setTransactions(loadedTxs);
+                        // Mescla com locais para garantir que itens locais não sumam se offline
+                        setTransactions(prev => {
+                            const map = new Map();
+                            prev.forEach(t => map.set(t.id, t));
+                            loadedTxs.forEach(t => map.set(t.id, t));
+                            return Array.from(map.values());
+                        });
                     }
                 }, (error) => {
                     if (error.code === 'permission-denied' || (error.message && error.message.includes('Missing or insufficient permissions'))) {
@@ -248,18 +288,15 @@
                 let cardExpense = 0;
 
                 filteredTransactions.forEach(t => {
-                    let factor = 1;
-                    // Se a despesa/receita for do Casal e o filtro for individual, itens do casal não entram na conta individual
                     if (t.ownerId === 'casal') {
-                        if (globalFilter !== 'casal') return; // Itens do casal aparecem apenas na visão Casal
+                        if (globalFilter !== 'casal') return;
                     }
 
-                    if (t.type === 'income') income += t.amount * factor;
-                    if (t.type === 'expense' && t.sourceType === 'account') accountExpense += t.amount * factor;
-                    if (t.type === 'expense' && t.sourceType === 'card') cardExpense += t.amount * factor;
+                    if (t.type === 'income') income += t.amount;
+                    if (t.type === 'expense' && t.sourceType === 'account') accountExpense += t.amount;
+                    if (t.type === 'expense' && t.sourceType === 'card') cardExpense += t.amount;
                 });
 
-                // Soma também o valor das faturas manuais e transações de cartão por ciclo para o mês atual
                 cards.forEach(card => {
                     if (globalFilter !== 'casal' && card.ownerId !== globalFilter && card.ownerId !== 'casal') return;
                     if (card.ownerId === 'casal' && globalFilter !== 'casal') return;
@@ -275,13 +312,10 @@
                     const manualKey = `${card.id}_${currentViewMonth}`;
                     const manualExtra = manualInvoices[manualKey] || 0;
                     
-                    // Se a fatura manual foi preenchida, usamos ela como total do cartão daquele ciclo
                     if (manualExtra > 0) {
                         cardExpense += manualExtra;
                     } else if (cardTxSum > 0 && manualExtra === 0) {
-                        // Evita duplicar se já somou via transação individual de cartão
-                        // Como 'filteredTransactions' já soma as transações de cartão, não precisamos re-somar cardTxSum aqui para não duplicar, 
-                        // a menos que não estivessem na lista. Mas filteredTransactions já contém as t.sourceType === 'card'!
+                        // já somado nas transações
                     }
                 });
 
