@@ -100,8 +100,7 @@
 
         const INITIAL_TRANSACTIONS = [
             { id: 't1', type: 'income', amount: 800000, description: 'Salário', date: new Date().toISOString().split('T')[0], categoryId: 'cat_salario', sourceId: 'acc_bra', sourceType: 'account', ownerId: 'p1', status: 'paid' },
-            { id: 't2', type: 'expense', amount: 12000, description: 'Luz', date: new Date().toISOString().split('T')[0], categoryId: 'cat_contas', sourceId: 'acc_bra', sourceType: 'account', ownerId: 'casal', paidById: 'p1', status: 'paid' },
-            { id: 't3', type: 'expense', amount: 35000, description: 'Supermercado', date: new Date().toISOString().split('T')[0], categoryId: 'cat_mercado', sourceId: 'card_bra', sourceType: 'card', ownerId: 'casal', paidById: 'casal', status: 'pending' },
+            { id: 't2', type: 'expense', amount: 12000, description: 'Luz', date: new Date().toISOString().split('T')[0], categoryId: 'cat_contas', sourceId: 'acc_bra', sourceType: 'account', ownerId: 'casal', paidById: 'p1', status: 'paid' }
         ];
 
         const formatCurrency = (cents) => {
@@ -148,20 +147,19 @@
         };
 
         function FinancasCasalApp() {
-            const [globalFilter, setGlobalFilter] = useState('casal'); // 'casal', 'p1', 'p2'
+            // Filtro Global: 'geral', 'casal', 'p1', 'p2'
+            const [globalFilter, setGlobalFilter] = useState('geral');
             const [currentTab, setCurrentTab] = useState('home');
             
             const [user, setUser] = useState(null);
             
-            // Nomes personalizados (Jordan e Areli como padrão)
             const [pessoa1Name, setPessoa1Name] = useState(() => localStorage.getItem('fc_p1_name') || 'Jordan');
             const [pessoa2Name, setPessoa2Name] = useState(() => localStorage.getItem('fc_p2_name') || 'Areli');
 
-            const PESSOA1 = useMemo(() => ({ id: 'p1', name: pessoa1Name, color: 'bg-blue-500', avatar: 'J' }), [pessoa1Name]);
-            const PESSOA2 = useMemo(() => ({ id: 'p2', name: pessoa2Name, color: 'bg-pink-500', avatar: 'A' }), [pessoa2Name]);
+            const PESSOA1 = useMemo(() => ({ id: 'p1', name: pessoa1Name, color: 'bg-blue-500', avatar: pessoa1Name.charAt(0).toUpperCase() }), [pessoa1Name]);
+            const PESSOA2 = useMemo(() => ({ id: 'p2', name: pessoa2Name, color: 'bg-pink-500', avatar: pessoa2Name.charAt(0).toUpperCase() }), [pessoa2Name]);
             const CASAL = useMemo(() => ({ id: 'casal', name: 'Casal', color: 'bg-purple-600', avatar: '👥' }), []);
 
-            // Carrega cartões do localStorage ou usa padrão
             const [cards, setCards] = useState(() => {
                 try {
                     const saved = localStorage.getItem('fc_cards');
@@ -169,7 +167,6 @@
                 } catch(e) { return INITIAL_CARDS; }
             });
 
-            // Carrega contas do localStorage ou usa padrão
             const [accounts, setAccounts] = useState(() => {
                 try {
                     const saved = localStorage.getItem('fc_accounts');
@@ -177,7 +174,6 @@
                 } catch(e) { return INITIAL_ACCOUNTS; }
             });
 
-            // Carrega transações do localStorage ou usa padrão
             const [transactions, setTransactions] = useState(() => {
                 try {
                     const saved = localStorage.getItem('fc_transactions');
@@ -201,17 +197,14 @@
             const [dbError, setDbError] = useState(false);
             const [firebaseReady, setFirebaseReady] = useState(false);
 
-            // Salva cartões no localStorage sempre que mudarem
             useEffect(() => {
                 localStorage.setItem('fc_cards', JSON.stringify(cards));
             }, [cards]);
 
-            // Salva contas no localStorage sempre que mudarem
             useEffect(() => {
                 localStorage.setItem('fc_accounts', JSON.stringify(accounts));
             }, [accounts]);
 
-            // Salva transações no localStorage sempre que mudarem
             useEffect(() => {
                 localStorage.setItem('fc_transactions', JSON.stringify(transactions));
             }, [transactions]);
@@ -274,20 +267,20 @@
 
             const getOwnerConfig = (id) => [PESSOA1, PESSOA2, CASAL].find(p => p.id === id) || CASAL;
             
-            // Filtro estrito por pessoa ou casal
+            // Filtro restrito rigoroso por dono ('geral', 'casal', 'p1', 'p2')
             const filteredTransactions = useMemo(() => {
                 return transactions.filter(t => {
                     const tMonth = t.date.substring(0, 7);
                     if (tMonth !== currentViewMonth) return false;
                     
-                    if (globalFilter === 'casal') return t.ownerId === 'casal'; 
+                    if (globalFilter === 'geral') return true;
                     return t.ownerId === globalFilter;
                 }).sort((a, b) => new Date(b.date) - new Date(a.date));
             }, [transactions, globalFilter, currentViewMonth]);
 
             const filteredCards = useMemo(() => {
                 return cards.filter(c => {
-                    if (globalFilter === 'casal') return c.ownerId === 'casal';
+                    if (globalFilter === 'geral') return true;
                     return c.ownerId === globalFilter;
                 });
             }, [cards, globalFilter]);
@@ -453,15 +446,20 @@
                         <div className="bg-white px-6 pt-5 pb-4 border-b border-slate-200 z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                             <div>
                                 <h1 className="text-xl md:text-2xl font-bold text-slate-900">
-                                    Olá, {globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}!
+                                    Olá, {globalFilter === 'geral' ? 'Geral' : globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}!
                                 </h1>
                                 <p className="text-xs md:text-sm text-slate-500 font-medium">Controle integrado e inteligente</p>
                             </div>
 
                             <div className="flex items-center justify-between md:justify-end gap-3">
-                                {/* Seletor de Perfil (Filtro Global) */}
+                                {/* Seletor de Perfil (Filtro Global) com Geral */}
                                 <div className="flex bg-slate-100 p-1 rounded-full space-x-1">
-                                    {[PESSOA1, CASAL, PESSOA2].map(p => (
+                                    {[
+                                        { id: 'geral', name: 'Geral', avatar: '🌐', color: 'bg-slate-700' },
+                                        PESSOA1, 
+                                        CASAL, 
+                                        PESSOA2
+                                    ].map(p => (
                                         <button
                                             key={p.id}
                                             onClick={() => setGlobalFilter(p.id)}
@@ -540,7 +538,7 @@
                                         </div>
 
                                         {/* Widget: Acerto de Contas */}
-                                        {globalFilter === 'casal' && (
+                                        {(globalFilter === 'casal' || globalFilter === 'geral') && (
                                             <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex items-center justify-between">
                                                 <div className="flex items-center space-x-4">
                                                     <div className={`w-12 h-12 rounded-2xl ${themeClasses.lightBg} ${themeClasses.text} flex items-center justify-center text-xl shrink-0`}>
@@ -589,7 +587,7 @@
                                 {currentTab === 'transacoes' && (
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center px-1">
-                                            <h2 className="text-lg font-bold text-slate-800">Lançamentos de {globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}</h2>
+                                            <h2 className="text-lg font-bold text-slate-800">Lançamentos de {globalFilter === 'geral' ? 'Geral' : globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}</h2>
                                             <button onClick={() => { setEditingTx(null); setIsTxModalOpen(true); }} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>Novo Lançamento</button>
                                         </div>
                                         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden divide-y divide-slate-100">
@@ -646,7 +644,7 @@
                                 {currentTab === 'cartoes' && (
                                     <div className="space-y-5">
                                         <div className="flex justify-between items-center px-1">
-                                            <h2 className="text-lg font-bold text-slate-800">Cartões de {globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}</h2>
+                                            <h2 className="text-lg font-bold text-slate-800">Cartões de {globalFilter === 'geral' ? 'Geral' : globalFilter === 'casal' ? 'Casal' : getOwnerConfig(globalFilter).name}</h2>
                                             <button onClick={() => setIsNewCardModalOpen(true)} className={`${themeClasses.bg} text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow`}>
                                                 <i className="fa-solid fa-plus mr-1.5"></i> Novo Cartão
                                             </button>
