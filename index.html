@@ -294,13 +294,21 @@
 
             const dashboardStats = useMemo(() => {
                 let income = 0;
-                let accountExpense = 0;
-                let cardExpense = 0;
+                let accountExpensePaid = 0;
+                let accountExpensePending = 0;
+                let cardExpensePaid = 0;
+                let cardExpensePending = 0;
 
                 filteredTransactions.forEach(t => {
-                    if (t.type === 'income') income += t.amount;
-                    if (t.type === 'expense' && t.sourceType === 'account') accountExpense += t.amount;
-                    if (t.type === 'expense' && t.sourceType === 'card') cardExpense += t.amount;
+                    if (t.type === 'income') {
+                        income += t.amount;
+                    } else if (t.type === 'expense' && t.sourceType === 'account') {
+                        if (t.status === 'paid') accountExpensePaid += t.amount;
+                        else accountExpensePending += t.amount;
+                    } else if (t.type === 'expense' && t.sourceType === 'card') {
+                        if (t.status === 'paid') cardExpensePaid += t.amount;
+                        else cardExpensePending += t.amount;
+                    }
                 });
 
                 filteredCards.forEach(card => {
@@ -314,18 +322,32 @@
 
                     const manualKey = `${card.id}_${currentViewMonth}`;
                     const manualExtra = manualInvoices[manualKey] || 0;
+                    const isPaidCard = !!paidInvoices[`${card.id}_${currentViewMonth}`];
                     
-                    if (manualExtra > 0) {
-                        cardExpense += manualExtra;
-                    } else if (cardTxSum > 0 && manualExtra === 0) {
-                        cardExpense += cardTxSum;
+                    let cardFinalSum = 0;
+                    if (manualExtra > 0) cardFinalSum = manualExtra;
+                    else if (cardTxSum > 0) cardFinalSum = cardTxSum;
+
+                    if (cardFinalSum > 0) {
+                        if (isPaidCard) cardExpensePaid += cardFinalSum;
+                        else cardExpensePending += cardFinalSum;
                     }
                 });
 
-                const totalExpense = accountExpense + cardExpense;
+                const totalPaid = accountExpensePaid + cardExpensePaid;
+                const totalPending = accountExpensePending + cardExpensePending;
+                const totalExpense = totalPaid + totalPending;
 
-                return { income, expense: totalExpense, accountExpense, cardExpense, balance: income - totalExpense };
-            }, [filteredTransactions, filteredCards, cards, manualInvoices, transactions, currentViewMonth]);
+                return { 
+                    income, 
+                    expense: totalExpense, 
+                    paidExpense: totalPaid, 
+                    pendingExpense: totalPending, 
+                    accountExpense: accountExpensePaid + accountExpensePending, 
+                    cardExpense: cardExpensePaid + cardExpensePending, 
+                    balance: income - totalExpense 
+                };
+            }, [filteredTransactions, filteredCards, cards, manualInvoices, paidInvoices, transactions, currentViewMonth]);
 
             const acertoDeContas = useMemo(() => {
                 let p2OwesP1 = 0; 
@@ -399,6 +421,22 @@
                 setTransactions(prev => prev.filter(t => t.id !== txId));
             };
 
+            const toggleTransactionStatus = async (txId) => {
+                const updated = transactions.map(t => {
+                    if (t.id === txId) {
+                        const newStatus = t.status === 'paid' ? 'pending' : 'paid';
+                        const nt = { ...t, status: newStatus };
+                        if (user && window.firebaseAPI) {
+                            const { db, doc, setDoc, appId } = window.firebaseAPI;
+                            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', txId), nt).catch(e=>console.error(e));
+                        }
+                        return nt;
+                    }
+                    return t;
+                });
+                setTransactions(updated);
+            };
+
             const handleSaveManualInvoice = (cardId, cycle, amount) => {
                 const updated = { ...manualInvoices, [`${cardId}_${cycle}`]: amount };
                 setManualInvoices(updated);
@@ -465,12 +503,12 @@
                             </div>
 
                             <div className="flex items-center justify-between md:justify-end gap-3">
-                                <div className="flex bg-slate-100 p-1 rounded-full space-x-1 overflow-x-auto hide-scrollbar max-w-[280px] sm:max-w-none">
+                                <div className="flex bg-slate-100 p-1 rounded-full space-x-1 overflow-x-auto hide-scrollbar max-w-[300px] sm:max-w-none">
                                     {[
                                         { id: 'geral', name: 'Geral', avatar: '🌐', color: 'bg-slate-700' },
+                                        CASA,
                                         PESSOA1, 
                                         PESSOA2,
-                                        CASA,
                                         ADOIS
                                     ].map(p => (
                                         <button
@@ -522,7 +560,7 @@
                                                     {formatCurrency(dashboardStats.balance)}
                                                 </h2>
                                                 
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-slate-800 pt-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 border-t border-slate-800 pt-4">
                                                     <div>
                                                         <div className="flex items-center text-emerald-400 text-xs font-semibold mb-1">
                                                             <i className="fa-solid fa-circle-arrow-down mr-1"></i> RECEITAS
@@ -531,15 +569,21 @@
                                                     </div>
                                                     <div>
                                                         <div className="flex items-center text-red-300 text-xs font-semibold mb-1">
-                                                            <i className="fa-solid fa-circle-arrow-up mr-1"></i> DESPESAS (CONTA)
-                                                        </div>
-                                                        <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.accountExpense)}</p>
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center text-purple-300 text-xs font-semibold mb-1">
                                                             <i className="fa-solid fa-credit-card mr-1"></i> CARTÃO DE CRÉDITO
                                                         </div>
                                                         <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.cardExpense)}</p>
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center text-emerald-300 text-xs font-semibold mb-1">
+                                                            <i className="fa-solid fa-check-circle mr-1"></i> DESPESAS PAGAS
+                                                        </div>
+                                                        <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.paidExpense)}</p>
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center text-amber-300 text-xs font-semibold mb-1">
+                                                            <i className="fa-solid fa-clock mr-1"></i> DESPESAS PENDENTES
+                                                        </div>
+                                                        <p className="font-bold text-base md:text-lg">{formatCurrency(dashboardStats.pendingExpense)}</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -580,7 +624,15 @@
                                                 <button onClick={() => setCurrentTab('transacoes')} className={`text-xs ${themeClasses.text} font-semibold hover:underline`}>Ver todos</button>
                                             </div>
                                             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                                                {filteredTransactions.slice(0, 5).map(t => <TransactionRow key={t.id} t={t} pessoa1Name={pessoa1Name} pessoa2Name={pessoa2Name} />)}
+                                                {filteredTransactions.slice(0, 5).map(t => (
+                                                    <TransactionRow 
+                                                        key={t.id} 
+                                                        t={t} 
+                                                        pessoa1Name={pessoa1Name} 
+                                                        pessoa2Name={pessoa2Name} 
+                                                        onToggleStatus={toggleTransactionStatus}
+                                                    />
+                                                ))}
                                                 {filteredTransactions.length === 0 && (
                                                     <p className="p-8 text-center text-slate-400 text-sm">Nenhum lançamento registrado neste filtro/mês.</p>
                                                 )}
@@ -603,17 +655,37 @@
                                                             const cat = CATEGORIAS.find(c => c.id === t.categoryId) || CATEGORIAS[CATEGORIAS.length - 1];
                                                             const isIncome = t.type === 'income';
                                                             const owner = getOwnerConfig(t.ownerId);
+                                                            const isPaid = t.status === 'paid';
                                                             return (
                                                                 <>
+                                                                    {!isIncome && (
+                                                                        <button 
+                                                                            onClick={() => toggleTransactionStatus(t.id)}
+                                                                            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-colors shrink-0 ${isPaid ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 bg-white hover:border-slate-400'}`}
+                                                                            title={isPaid ? "Marcado como pago" : "Marcar como pago"}
+                                                                        >
+                                                                            {isPaid && <i className="fa-solid fa-check text-xs"></i>}
+                                                                        </button>
+                                                                    )}
                                                                     <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white ${cat.color} shadow-sm shrink-0`}>
                                                                         <span className="text-lg">{cat.icon}</span>
                                                                     </div>
                                                                     <div className="overflow-hidden flex-1">
-                                                                        <p className="font-semibold text-slate-800 text-sm truncate">{t.description} {t.installment && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-1">{t.installment}</span>}</p>
+                                                                        <p className={`font-semibold text-sm truncate ${isPaid && !isIncome ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                                                            {t.description} {t.installment && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-1">{t.installment}</span>}
+                                                                        </p>
                                                                         <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2">
                                                                             <span>{formatDate(t.date)}</span>
                                                                             <span>•</span>
                                                                             <span className="truncate">{cat.name}</span>
+                                                                            {!isIncome && (
+                                                                                <>
+                                                                                    <span>•</span>
+                                                                                    <span className={isPaid ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'}>
+                                                                                        {isPaid ? 'Pago' : 'Pendente'}
+                                                                                    </span>
+                                                                                </>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                     <div className="flex flex-col items-end shrink-0 mx-4">
@@ -981,23 +1053,43 @@
                 );
             }
 
-            function TransactionRow({ t, pessoa1Name, pessoa2Name }) {
+            function TransactionRow({ t, pessoa1Name, pessoa2Name, onToggleStatus }) {
                 const cat = CATEGORIAS.find(c => c.id === t.categoryId) || CATEGORIAS[CATEGORIAS.length - 1];
                 const isIncome = t.type === 'income';
                 const owner = getOwnerConfig(t.ownerId);
+                const isPaid = t.status === 'paid';
 
                 return (
                     <div className="flex items-center p-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                        {!isIncome && (
+                            <button 
+                                onClick={() => onToggleStatus(t.id)}
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-colors shrink-0 mr-3 ${isPaid ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 bg-white hover:border-slate-400'}`}
+                                title={isPaid ? "Marcado como pago" : "Marcar como pago"}
+                            >
+                                {isPaid && <i className="fa-solid fa-check text-xs"></i>}
+                            </button>
+                        )}
                         <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white ${cat.color} shadow-sm shrink-0`}>
                             <span className="text-lg">{cat.icon}</span>
                         </div>
                         
                         <div className="ml-3 flex-1 overflow-hidden">
-                            <p className="font-semibold text-slate-800 text-sm truncate">{t.description} {t.installment && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-1">{t.installment}</span>}</p>
+                            <p className={`font-semibold text-sm truncate ${isPaid && !isIncome ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                {t.description} {t.installment && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono ml-1">{t.installment}</span>}
+                            </p>
                             <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2">
                                 <span>{formatDate(t.date)}</span>
                                 <span>•</span>
                                 <span className="truncate">{cat.name}</span>
+                                {!isIncome && (
+                                    <>
+                                        <span>•</span>
+                                        <span className={isPaid ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'}>
+                                            {isPaid ? 'Pago' : 'Pendente'}
+                                        </span>
+                                    </>
+                                )}
                             </div>
                         </div>
 
@@ -1061,7 +1153,7 @@
                             sourceId: source,
                             sourceType: isCard ? 'card' : 'account',
                             ownerId,
-                            status: isCard ? 'pending' : 'paid',
+                            status: isCard ? 'pending' : (editingTx.status || 'paid'),
                             paidById: ownerId === 'casa' ? (isCard ? cards.find(c=>c.id===source).ownerId : accounts.find(a=>a.id===source)?.ownerId || 'casa') : null
                         };
                         onSave(updatedTx);
